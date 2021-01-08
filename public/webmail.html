@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <link rel="stylesheet" href="https://necolas.github.io/normalize.css/8.0.1/normalize.css" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato&display=swap" />
+    <link rel="stylesheet" href="./stylesheets/style.css" />
+    <script defer src="https://use.fontawesome.com/releases/v5.3.1/js/all.js"></script>
+    <script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
+    <title>HKU WebMail</title>
+  </head>
+  <body onload="init()">
+    <header id="heading" class="container align-items-center item item-12 title">
+      Welcome to WebMail!
+    </header>
+
+    <div id="function" class="container align-items-center item item-12 spacing-1">
+      <div class="item item-3">
+        <button name="compose-mail" class="button" onclick="renderComposeInterface()">
+          Compose
+        </button>
+      </div>
+      <div class="item item-6">
+        <div class="select">
+          <select name="mailbox-move" required>
+            <option value="" disabled hidden>Move to ...</option>
+            <option value="Inbox" hidden>Inbox</option>
+            <option value="Important">Important</option>
+            <option value="Sent">Sent</option>
+            <option value="Trash">Trash</option>
+          </select>
+        </div>
+      </div>
+      <div class="item item-3 text-align-right">
+        <button id="nav-prev" class="button circle margin-right-1" disabled>
+          <span class="icon"><i class="fas fa-angle-left"></i></span>
+        </button>
+        <button id="nav-next" class="button circle">
+          <span class="icon"><i class="fas fa-angle-right"></i></span>
+        </button>
+      </div>
+    </div>
+
+    <aside id="mailbox" class="container align-content-flex-start item item-3">
+      <div class="item item-12 nav-item active">
+        <a id="nav-Inbox" href="#">
+          <span class="icon"><i class="fas fa-inbox"></i></span>
+          &emsp;Inbox
+        </a>
+      </div>
+      <div class="item item-12 nav-item">
+        <a id="nav-Important" href="#">
+          <span class="icon"><i class="fas fa-exclamation"></i></span>
+          &emsp;Important
+        </a>
+      </div>
+      <div class="item item-12 nav-item">
+        <a id="nav-Sent" href="#">
+          <span class="icon"><i class="fas fa-paper-plane"></i></span>
+          &emsp;Sent
+        </a>
+      </div>
+      <div class="item item-12 nav-item">
+        <a id="nav-Trash" href="#">
+          <span class="icon"><i class="fas fa-trash"></i></span>
+          &emsp;Trash
+        </a>
+      </div>
+    </aside>
+
+    <main id="email" class="container align-content-flex-start item item-9">
+      Loading ...
+    </main>
+
+    <script>
+      // We use a global object as the application's state
+      var state = {
+        currentMode: 'List', // List, Read, Create
+        currentNav: 'Inbox', // Inbox, Important, Sent, Trash
+        currentPage: 1,
+        emailList: [],
+        email: {},
+        selectedEmails: [],
+      };
+      var $emailRoot = $('#email');
+
+      function resetCurrentPage() {
+        state.currentPage = 1;
+      }
+
+      function resetDropdown(mailbox) {
+        var $mailboxMoveSelect = $('select[name="mailbox-move"]');
+        $mailboxMoveSelect
+          .children('option[hidden]')
+          .not('[value=""]')
+          .removeAttr('hidden');
+        $mailboxMoveSelect.children('option[value="' + mailbox + '"]').attr('hidden', true);
+        $mailboxMoveSelect.val('');
+      }
+
+      function selectNav(nextNav) {
+        var $nextActiveNav = $('#nav-' + nextNav).parent();
+        $nextActiveNav.siblings('.active').removeClass('active');
+        $nextActiveNav.addClass('active');
+      }
+
+      function getAndRenderEmailList(mailbox, page) {
+        $.get('http://localhost:8081/retrieveemaillist', {
+          mailbox: mailbox,
+          limit: 2,
+          page: page,
+        })
+          .done(function(emailList) {
+            if (!emailList.length) {
+              return;
+            }
+
+            // In usual cases, we will show the sender
+            var personOfInterest = 'sender';
+            // But for Sent mailbox, we will show the recipient
+            if (mailbox === 'Sent') {
+              personOfInterest = 'recipient';
+            }
+
+            var emailItems = $.map(emailList, function(email) {
+              return $('<div>', {
+                // We store the ID for unique referencing in other requests
+                attr: { id: email._id },
+                class: 'container align-items-center spacing-1 email-list-item',
+                click: function(event) {
+                  getAndRenderEmailContent(event.currentTarget.id);
+                },
+              }).append(
+                $('<div>', {
+                  class: 'item item-1 word-break-break-word',
+                  click: function(event) {
+                    event.stopPropagation();
+                  },
+                }).append(
+                  $('<input>', {
+                    attr: {
+                      type: 'checkbox',
+                      value: email._id,
+                    },
+                    change: function(event) {
+                      var emailId = event.currentTarget.value;
+                      if (event.currentTarget.checked) {
+                        state.selectedEmails.push(emailId);
+                      } else {
+                        var emailIndex = state.selectedEmails.indexOf(emailId);
+                        if (emailIndex !== -1) {
+                          state.selectedEmails.splice(emailId, 1);
+                        }
+                      }
+                    },
+                  })
+                ),
+                $('<div>', {
+                  class: 'item item-4 word-break-break-word',
+                  text: email[personOfInterest],
+                }),
+                $('<div>', { class: 'item item-4 word-break-break-word', text: email.title }),
+                $('<div>', { class: 'item item-3 word-break-break-word', text: email.time })
+              );
+            });
+
+            $emailRoot.empty();
+            $emailRoot.append.apply($emailRoot, emailItems);
+
+            state.emailList = emailList;
+          })
+          .fail(function(error) {
+            console.error(error);
+            window.alert('An error occurred while fetching emails!');
+            $emailRoot.text('An error occurred, please refresh.');
+          });
+      }
+
+      function getAndRenderEmailContent(emailId) {
+        $.get('http://localhost:8081/getemail', {
+          id: emailId,
+        })
+          .done(function(email) {
+            $emailRoot.empty();
+            $emailRoot.append(
+              $('<div class="container align-items-center padding-bottom-4">').append(
+                $('<div>', { class: 'item item-9 email-content-item', text: email.title }),
+                $('<div>', {
+                  class: 'item item-3 word-break-break-word text-align-right email-content-item',
+                  text: email.time,
+                }),
+                $('<div>', { class: 'item item-12 email-content-item', text: email.sender }),
+                $('<div>', { class: 'item item-12 email-content-item', text: email.recipient }),
+                $('<div>', { class: 'item item-12 email-content-item', text: email.content })
+              )
+            );
+
+            state.email = email;
+          })
+          .fail(function(error) {
+            console.error(error);
+            window.alert('An error occurred while fetching email content!');
+            $emailRoot.text('An error occurred, please refresh.');
+          });
+      }
+
+      function selectMailbox(mailbox) {
+        // Select nav item in mailboxes
+        selectNav(mailbox);
+        // Hide unwanted items in move dropdown and reset value
+        resetDropdown(mailbox, '');
+        // Get email data from server
+        getAndRenderEmailList(mailbox, 1);
+        // Reset page for mailboxes
+        resetCurrentPage();
+        // Set next mailbox as current nav
+        state.currentNav = mailbox;
+        // Reset email list
+        state.emailList = [];
+      }
+
+      function selectEmail(id) {
+        // Get email content from server
+        getAndRenderEmailContent(id);
+        // Set current selected email to the opened email only
+        state.selectedEmails = [id];
+      }
+
+      function moveEmailsAndReRender(newMailbox) {
+        if (!newMailbox || !state.selectedEmails.length) {
+          return;
+        }
+
+        if (state.currentNav === 'List') {
+          $.post('http://localhost:8081/changemailbox', {
+            curMailbox: state.currentNav,
+            ids: state.selectedEmails.join(','),
+            newMailbox: newMailbox,
+            tail: (state.emailList[state.emailList.length - 1] || {}).time,
+          })
+            .done(function(emailList) {
+              // In usual cases, we will show the sender
+              var personOfInterest = 'sender';
+              // But for Sent mailbox, we will show the recipient
+              if (mailbox === 'Sent') {
+                personOfInterest = 'recipient';
+              }
+
+              var emailItems = $.map(emailList, function(email) {
+                return $('<div>', {
+                  // We store the ID for unique referencing in other requests
+                  attr: { id: email._id },
+                  class: 'container align-items-center spacing-1 email-list-item',
+                  click: function(event) {
+                    getAndRenderEmailContent(event.currentTarget.id);
+                  },
+                }).append(
+                  $('<div>', {
+                    class: 'item item-1 word-break-break-word',
+                    click: function(event) {
+                      event.stopPropagation();
+                    },
+                  }).append(
+                    $('<input>', {
+                      attr: {
+                        type: 'checkbox',
+                        value: email._id,
+                      },
+                      change: function(event) {
+                        var emailId = event.currentTarget.value;
+                        if (event.currentTarget.checked) {
+                          state.selectedEmails.push(emailId);
+                        } else {
+                          var emailIndex = state.selectedEmails.indexOf(emailId);
+                          if (emailIndex !== -1) {
+                            state.selectedEmails.splice(emailId, 1);
+                          }
+                        }
+                      },
+                    })
+                  ),
+                  $('<div>', {
+                    class: 'item item-4 word-break-break-word',
+                    text: email[personOfInterest],
+                  }),
+                  $('<div>', { class: 'item item-4 word-break-break-word', text: email.title }),
+                  $('<div>', { class: 'item item-3 word-break-break-word', text: email.time })
+                );
+              });
+
+              $emailRoot.append.apply($emailRoot, emailItems);
+            })
+            .fail(function(error) {
+              console.error(error);
+              window.alert('An error occurred while moving emails!');
+              $emailRoot.text('An error occurred, please refresh.');
+            });
+        } else if (state.currentNav === 'Read') {
+          $.get('http://localhost:8081/getemail', {
+            tail: state.email.time,
+          })
+            .done(function(email) {
+              $emailRoot.empty();
+              $emailRoot.append(
+                $('<div class="container align-items-center padding-bottom-4">').append(
+                  $('<div>', { class: 'item item-9 email-content-item', text: email.title }),
+                  $('<div>', {
+                    class: 'item item-3 word-break-break-word text-align-right email-content-item',
+                    text: email.time,
+                  }),
+                  $('<div>', { class: 'item item-12 email-content-item', text: email.sender }),
+                  $('<div>', { class: 'item item-12 email-content-item', text: email.recipient }),
+                  $('<div>', { class: 'item item-12 email-content-item', text: email.content })
+                )
+              );
+            })
+            .fail(function(error) {
+              console.error(error);
+              window.alert('An error occurred while fetching email content!');
+              $emailRoot.text('An error occurred, please refresh.');
+            });
+        }
+      }
+
+      function renderComposeInterface() {
+        $emailRoot.empty();
+        $emailRoot.append(
+          $('<div class="container align-items-center padding-bottom-4">').append(
+            $('<div>', { class: 'item item-12 email-content-item', text: 'New Message' }),
+            $('<div>', { class: 'item item-3 email-content-item', text: 'To:' }),
+            $('<div>', { class: 'item item-9' }).append($('<input>', { attr: { type: 'text' } })),
+            $('<div>', { class: 'item item-3 email-content-item', text: 'Subject:' }),
+            $('<div>', { class: 'item item-9' }).append($('<input>', { attr: { type: 'text' } })),
+            $('<div>', { class: 'item item-12' }).append($('<textarea>')),
+            $('<div>', { class: 'item item-12' }).append($('<button type="submit">Send</button>'))
+          )
+        );
+      }
+
+      function init() {
+        selectMailbox('Inbox');
+
+        // Bind click handlers to prev/next buttons
+        $('#function')
+          .find('button[id*="nav-"]')
+          .each(function(idx, child) {
+            $(child).click(function(event) {
+              var type = event.currentTarget.id.split('-')[1];
+              if (currentNav === 'List') {
+                switch (type) {
+                  case 'prev':
+                    state.currentPage -= 1;
+                    getAndRenderEmailList(state.currentNav, state.currentPage);
+                    break;
+                  case 'next':
+                    state.currentPage += 1;
+                    getAndRenderEmailList(state.currentNav, state.currentPage);
+                    break;
+                }
+              } else if (currentPage === 'Read') {
+                var params = {};
+                if (type === 'prev') {
+                  params = { head: state.email };
+                } else if (type === 'next') {
+                  params = { tail: state.email };
+                }
+
+                $.get('http://localhost:8081/getemail', params)
+                  .done(function(email) {
+                    $emailRoot.empty();
+                    $emailRoot.append(
+                      $('<div class="container align-items-center padding-bottom-4">').append(
+                        $('<div>', { class: 'item item-9 email-content-item', text: email.title }),
+                        $('<div>', {
+                          class:
+                            'item item-3 word-break-break-word text-align-right email-content-item',
+                          text: email.time,
+                        }),
+                        $('<div>', {
+                          class: 'item item-12 email-content-item',
+                          text: email.sender,
+                        }),
+                        $('<div>', {
+                          class: 'item item-12 email-content-item',
+                          text: email.recipient,
+                        }),
+                        $('<div>', {
+                          class: 'item item-12 email-content-item',
+                          text: email.content,
+                        })
+                      )
+                    );
+
+                    state.email = email;
+                  })
+                  .fail(function(error) {
+                    console.error(error);
+                    window.alert('An error occurred while fetching email content!');
+                    $emailRoot.text('An error occurred, please refresh.');
+                  });
+              }
+            });
+          });
+
+        // Bind click handlers to nav items
+        $('#mailbox')
+          .find('a[id*=nav-]')
+          .each(function(idx, child) {
+            $(child).click(function(event) {
+              event.preventDefault();
+              var id = event.currentTarget.id.split('-')[1];
+
+              selectMailbox(id);
+            });
+          });
+
+        // Bind change handler to move dropdown
+        $('select[name="mailbox-move"]').change(function(event) {
+          moveEmailsAndReRender(event.currentTarget.value);
+        });
+      }
+    </script>
+  </body>
+</html>
